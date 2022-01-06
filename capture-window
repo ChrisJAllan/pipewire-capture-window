@@ -1,0 +1,46 @@
+#!/bin/bash
+
+DEST="capture"
+
+_window=$(xdotool selectwindow)
+
+if [[ -z "$_window" ]]; then
+	exit
+fi
+
+_pid="$(xprop -id $_window _NET_WM_PID | cut -d' ' -f3)"
+_name="$(xprop -id $_window _NET_WM_NAME | cut -d'"' -f2)"
+
+echo $_pid
+echo "$_name"
+
+_node=$(pw-dump | jq --argjson pid $_pid --arg name "$_name" '.[] | select(.type == "PipeWire:Interface:Node" and .info.props."application.process.id" == $pid and (.info.props."media.name" == $name or .info.props."media.name" as $media | $name | test($media))) | .id')
+
+echo $_node
+
+if [[ -z "$_node" ]]; then
+	echo "Skipping name..."
+	_node=$(pw-dump | jq --argjson pid $_pid '.[] | select(.type == "PipeWire:Interface:Node" and .info.props."application.process.id" == $pid) | .id')
+	
+	echo "$_node"
+fi
+
+if [[ -z "$_node" ]]; then
+	echo "No audio"
+	exit
+fi
+
+_ports=($(pw-dump | jq --argjson node $_node '.[] | select(.info.direction == "output" and .info.props."node.id" == $node) | .id'))
+
+echo "${_ports[@]}"
+
+DEST_NODE=$(pw-dump | jq --arg name "$DEST" '.[] | select(.type == "PipeWire:Interface:Node" and .info.props."node.name" == $name) | .id')
+
+echo $DEST_NODE
+
+DEST_PORTS=($(pw-dump | jq --argjson node $DEST_NODE '.[] | select(.info.direction == "input" and .info.props."node.id" == $node) | .id'))
+
+echo "${DEST_PORTS[@]}"
+
+pw-link "${_ports[0]}" "${DEST_PORTS[0]}"
+pw-link "${_ports[1]}" "${DEST_PORTS[1]}"
